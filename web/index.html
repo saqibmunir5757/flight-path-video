@@ -1,0 +1,1465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flight Path Video v2</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d0d0d;
+      --surface: #1a1a1a;
+      --border:  #2e2e2e;
+      --accent:  #FFD700;
+      --text:    #f0f0f0;
+      --muted:   #888;
+      --danger:  #ff4444;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 1000;
+    }
+    #topbar h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.5px; }
+    #topbar h1 span { color: var(--accent); }
+    #phase-indicator { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+    /* ── Main ── */
+    #main { flex: 1; position: relative; overflow: hidden; }
+
+    /* ── PHASE 1: Map ── */
+    #map-phase { position: absolute; inset: 0; display: flex; flex-direction: column; }
+    #leaflet-map { flex: 1; }
+
+    /* Map style selector */
+    #map-style-selector {
+      position: absolute; top: 20px; right: 20px; z-index: 600;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; font-size: 12px;
+      color: var(--text); cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center;
+      padding-right: 32px; font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    #map-style-selector:hover { border-color: var(--accent); }
+    #map-style-selector:focus { outline: none; border-color: var(--accent); }
+    #map-style-selector option { background: var(--surface); color: var(--text); }
+
+    #map-toolbar {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.92) 0%, transparent 100%);
+      padding: 32px 24px 24px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 500;
+    }
+    #map-toolbar > * { pointer-events: all; }
+    .map-hint { color: rgba(255,255,255,0.65); font-size: 13px; line-height: 1.7; }
+    .map-hint strong { color: var(--accent); }
+
+    /* ── Snapshot overlay ── */
+    #snapshot-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.78);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 18px;
+      z-index: 900;
+    }
+    #snapshot-overlay.active { display: flex; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #snapshot-status-text { color: var(--text); font-size: 14px; }
+
+    /* ── PHASE 2: Draw ── */
+    #draw-phase {
+      position: absolute; inset: 0;
+      display: none;
+      flex-direction: column;
+    }
+    #draw-canvas-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #map-img {
+      max-width: 100%; max-height: 100%;
+      object-fit: contain; display: block;
+      user-select: none; -webkit-user-drag: none;
+    }
+    #draw-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      cursor: crosshair;
+    }
+    #coords-display {
+      position: absolute;
+      top: 10px; right: 12px;
+      background: rgba(0,0,0,0.68);
+      color: var(--muted);
+      font-size: 11px;
+      font-family: monospace;
+      padding: 4px 10px;
+      border-radius: 6px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #draw-toolbar {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    #waypoints-list {
+      flex: 1; display: flex; align-items: center;
+      gap: 6px; overflow-x: auto; min-width: 0;
+    }
+    .wp-chip {
+      background: var(--border); border-radius: 20px;
+      padding: 4px 10px; font-size: 11px; color: var(--muted);
+      white-space: nowrap; display: flex; align-items: center; gap: 5px;
+    }
+    .wp-num {
+      background: var(--accent); color: #000; border-radius: 50%;
+      width: 16px; height: 16px; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700;
+    }
+    #point-count {
+      background: var(--accent); color: #000;
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; font-weight: 700; white-space: nowrap;
+    }
+    .sep { width: 1px; height: 28px; background: var(--border); flex-shrink: 0; }
+    .color-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .color-row input[type=color] {
+      width: 30px; height: 30px; border: none; border-radius: 6px;
+      background: none; cursor: pointer; padding: 0;
+    }
+
+    /* ── PHASE 3: Progress ── */
+    #progress-phase {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+    }
+    #progress-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 48px 56px; text-align: center; min-width: 400px;
+    }
+    #progress-card h2 { font-size: 22px; margin-bottom: 8px; }
+    #progress-phase-text { font-size: 13px; color: var(--muted); margin-bottom: 24px; min-height: 20px; }
+    #progress-bar-wrap { background: var(--border); border-radius: 99px; height: 8px; overflow: hidden; margin-bottom: 8px; }
+    #progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s ease; border-radius: 99px; }
+    #progress-pct { font-size: 13px; color: var(--muted); }
+
+    /* ── PHASE 4: Download ── */
+    #download-phase {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      overflow-y: auto; padding: 24px;
+    }
+    #download-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 32px 40px; text-align: center; min-width: 480px; max-width: 860px; width: 100%;
+    }
+    #download-card h2 { font-size: 22px; margin-bottom: 6px; }
+    #download-card p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+    #preview-video {
+      width: 100%; border-radius: 10px; background: #000;
+      margin-bottom: 24px; display: block;
+      aspect-ratio: 16/9; outline: 1px solid var(--border);
+    }
+
+    /* ── Error ── */
+    #error-phase {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+    }
+    #error-card {
+      background: var(--surface); border: 1px solid var(--danger);
+      border-radius: 16px; padding: 48px 56px; text-align: center; min-width: 400px;
+    }
+    #error-card h2 { color: var(--danger); margin-bottom: 12px; }
+    #error-msg { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 10px 22px; border-radius: 8px; border: none;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s; white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { opacity: 0.85; }
+    .btn:active:not(:disabled) { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary  { background: var(--accent); color: #000; }
+    .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-sm { padding: 7px 14px; font-size: 12px; }
+    .btn-lg { padding: 14px 32px; font-size: 16px; }
+
+    /* Leaflet overrides */
+    .leaflet-control-zoom a { background: var(--surface) !important; color: var(--text) !important; border-color: var(--border) !important; }
+    .leaflet-control-attribution { background: rgba(0,0,0,0.5) !important; color: var(--muted) !important; font-size: 10px !important; }
+    .leaflet-control-attribution a { color: var(--muted) !important; }
+
+    /* ── Settings panel ── */
+    #settings-panel {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: 300px; background: #111; border-left: 1px solid var(--border);
+      z-index: 2000; display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+      box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+    }
+    #settings-panel.open { transform: translateX(0); }
+    #settings-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px; border-bottom: 1px solid var(--border);
+      font-size: 14px; font-weight: 700; letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+    #btn-close-settings {
+      background: none; border: none; color: var(--muted);
+      font-size: 18px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+      line-height: 1;
+    }
+    #btn-close-settings:hover { color: var(--text); background: var(--border); }
+    #settings-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+    .settings-section { display: flex; flex-direction: column; gap: 10px; }
+    .settings-title {
+      font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: var(--muted);
+      padding-bottom: 6px; border-bottom: 1px solid var(--border);
+    }
+    .settings-row {
+      display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text);
+    }
+    .settings-row label { width: 72px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
+    .settings-row input[type=text] {
+      flex: 1; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 7px 10px; color: var(--text); font-size: 13px;
+      outline: none;
+    }
+    .settings-row input[type=text]:focus { border-color: var(--accent); }
+    .settings-row input[type=color] {
+      width: 34px; height: 30px; border: none; border-radius: 6px;
+      background: none; cursor: pointer; padding: 0; flex-shrink: 0;
+    }
+
+    /* Plane style grid */
+    #plane-style-select {
+      width: 100%; background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 9px 10px; font-size: 13px;
+      color: var(--text); cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center;
+    }
+    #plane-style-select:focus { outline: none; border-color: var(--accent); }
+    #plane-style-select option { background: #1a1a1a; color: var(--text); }
+
+    /* Bold / Italic toggles */
+    #bi-selector { display: flex; gap: 8px; }
+    .bi-opt {
+      width: 44px; background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 8px 0; font-size: 14px;
+      color: var(--muted); cursor: pointer; text-align: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .bi-opt:hover { border-color: #555; color: var(--text); }
+    .bi-opt.active { border-color: var(--accent); color: var(--accent); background: rgba(255,215,0,0.07); }
+    #btn-bold  { font-weight: bold; }
+    #btn-italic { font-style: italic; }
+
+    /* Font style grid */
+    #font-style-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .font-opt {
+      background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 9px 6px; font-size: 13px;
+      color: var(--muted); cursor: pointer; text-align: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .font-opt:hover { border-color: #555; color: var(--text); }
+    .font-opt.active { border-color: var(--accent); color: var(--accent); background: rgba(255,215,0,0.07); }
+
+    /* Case selector */
+    #case-selector { display: flex; gap: 8px; }
+    .case-opt {
+      flex: 1; background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 9px 4px; font-size: 13px;
+      color: var(--muted); cursor: pointer; text-align: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .case-opt:hover { border-color: #555; color: var(--text); }
+    .case-opt.active { border-color: var(--accent); color: var(--accent); background: rgba(255,215,0,0.07); }
+
+    /* Slider rows */
+    .slider-row { display: flex; align-items: center; gap: 10px; }
+    .slider-row input[type=range] {
+      flex: 1; -webkit-appearance: none; appearance: none;
+      height: 4px; border-radius: 2px; background: var(--border); outline: none;
+    }
+    .slider-row input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent); cursor: pointer;
+    }
+    .slider-row .slider-val {
+      width: 36px; text-align: right; font-size: 12px; color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Glow intensity selector */
+    #intensity-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+    .intensity-opt {
+      flex: 1; background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 8px 2px; font-size: 11px;
+      color: var(--muted); cursor: pointer; text-align: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .intensity-opt:hover { border-color: #555; color: var(--text); }
+    .intensity-opt.active { border-color: var(--accent); color: var(--accent); background: rgba(255,215,0,0.07); }
+
+    /* Trail glow intensity selector */
+    #trail-intensity-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+    .trail-intensity-opt {
+      flex: 1; background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 8px 2px; font-size: 11px;
+      color: var(--muted); cursor: pointer; text-align: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .trail-intensity-opt:hover { border-color: #555; color: var(--text); }
+    .trail-intensity-opt.active { border-color: var(--accent); color: var(--accent); background: rgba(255,215,0,0.07); }
+
+    /* Speed selector */
+    #speed-selector { display: flex; gap: 8px; }
+    .speed-opt {
+      flex: 1; background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 9px 4px; font-size: 12px;
+      color: var(--muted); cursor: pointer; text-align: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .speed-opt:hover { border-color: #555; color: var(--text); }
+    .speed-opt.active { border-color: var(--accent); color: var(--accent); background: rgba(255,215,0,0.07); }
+
+    /* Toggle switch */
+    .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+    .toggle-switch { position: relative; display: inline-block; width: 38px; height: 20px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: var(--border); border-radius: 20px;
+      transition: background 0.2s;
+    }
+    .toggle-slider:before {
+      content: ''; position: absolute;
+      width: 14px; height: 14px; left: 3px; bottom: 3px;
+      background: white; border-radius: 50%; transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider:before { transform: translateX(18px); }
+
+    /* Overlay when panel is open */
+    #settings-overlay {
+      display: none; position: fixed; inset: 0; z-index: 1999;
+      background: rgba(0,0,0,0.3);
+    }
+    #settings-overlay.open { display: block; }
+
+    /* ── History panel ── */
+    #history-panel {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: 320px; background: #111; border-left: 1px solid var(--border);
+      z-index: 2000; display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+      box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+    }
+    #history-panel.open { transform: translateX(0); }
+    #history-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px; border-bottom: 1px solid var(--border);
+      font-size: 14px; font-weight: 700; letter-spacing: 0.5px; flex-shrink: 0;
+    }
+    #btn-close-history {
+      background: none; border: none; color: var(--muted);
+      font-size: 18px; cursor: pointer; padding: 2px 6px; border-radius: 4px; line-height: 1;
+    }
+    #btn-close-history:hover { color: var(--text); background: var(--border); }
+    #history-list { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .history-entry {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .history-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .history-label { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-status { font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .history-entry-sub { display: flex; align-items: center; justify-content: space-between; }
+    .history-progress { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+    .history-progress-bar { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s; }
+
+    /* Topbar history button + badge */
+    #topbar-right { display: flex; align-items: center; gap: 10px; }
+    #btn-history {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px;
+      cursor: pointer; display: flex; align-items: center; gap: 6px;
+      transition: border-color 0.15s;
+    }
+    #btn-history:hover { border-color: var(--accent); }
+    #history-badge {
+      background: var(--accent); color: #000; font-size: 10px; font-weight: 800;
+      min-width: 18px; height: 18px; border-radius: 9px; display: none;
+      align-items: center; justify-content: center; padding: 0 4px;
+    }
+
+    /* Create another btn in progress card */
+    #btn-create-another {
+      margin-top: 20px; background: none; border: 1px solid var(--border);
+      color: var(--muted); font-size: 13px; font-weight: 600; padding: 8px 20px;
+      border-radius: 8px; cursor: pointer; transition: border-color 0.15s, color 0.15s;
+    }
+    #btn-create-another:hover { border-color: var(--accent); color: var(--text); }
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>✈ Flight Path Video <span>v2</span></h1>
+  <div id="topbar-right">
+    <div id="phase-indicator">Navigate map</div>
+    <button id="btn-history">🕐 History <span id="history-badge"></span></button>
+  </div>
+</div>
+
+<div id="main">
+
+  <!-- PHASE 1: Map Navigation -->
+  <div id="map-phase">
+    <div id="leaflet-map"></div>
+
+    <select id="map-style-selector">
+      <option value="satellite">🛰 Satellite</option>
+      <option value="osm">🗺 OpenStreetMap</option>
+    </select>
+
+    <div id="snapshot-overlay">
+      <div class="spinner"></div>
+      <p id="snapshot-status-text">Fetching satellite tiles…</p>
+    </div>
+
+    <div id="map-toolbar">
+      <div class="map-hint">
+        <strong>Pan &amp; zoom</strong> to the region you want to animate.<br>
+        When ready, capture the view and draw your flight path.
+      </div>
+      <button class="btn btn-primary btn-lg" id="btn-capture">📷 Capture This View</button>
+    </div>
+  </div>
+
+  <!-- PHASE 2: Draw Mode -->
+  <div id="draw-phase">
+    <div id="draw-canvas-container">
+      <img id="map-img" alt="Captured map" draggable="false" />
+      <canvas id="draw-canvas"></canvas>
+      <div id="coords-display">hover to see coordinates</div>
+    </div>
+
+    <div id="draw-toolbar">
+      <span id="point-count">0 points</span>
+      <div class="sep"></div>
+      <div id="waypoints-list"></div>
+      <div class="sep"></div>
+      <!-- Quick color pickers — also synced to settings panel -->
+      <div class="color-row">
+        <label>Plane</label>
+        <input type="color" id="plane-color" value="#ffffff" />
+      </div>
+      <div class="color-row">
+        <label>Trail</label>
+        <input type="color" id="line-color" value="#FFD700" />
+      </div>
+      <div class="sep"></div>
+      <button class="btn btn-secondary btn-sm" id="btn-undo">↩ Undo</button>
+      <button class="btn btn-secondary btn-sm" id="btn-clear">✕ Clear</button>
+      <button class="btn btn-secondary btn-sm" id="btn-back-to-map">← Re-capture</button>
+      <button class="btn btn-secondary btn-sm" id="btn-settings">⚙ Settings</button>
+      <button class="btn btn-primary" id="btn-generate" disabled>▶ Generate Video</button>
+    </div>
+  </div>
+
+  <!-- PHASE 3: Progress -->
+  <div id="progress-phase">
+    <div id="progress-card">
+      <h2>Rendering…</h2>
+      <p id="progress-phase-text">Starting…</p>
+      <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+      <p id="progress-pct">0%</p>
+      <button id="btn-create-another">← Create Another</button>
+    </div>
+  </div>
+
+  <!-- PHASE 4: Download -->
+  <div id="download-phase">
+    <div id="download-card">
+      <h2>✅ Video Ready</h2>
+      <p>Your flight path animation has been rendered.</p>
+      <video id="preview-video" controls playsinline></video>
+      <a id="btn-download" class="btn btn-primary btn-lg" download="flight-path-video.mp4">⬇ Download MP4</a>
+      <br><br>
+      <button class="btn btn-secondary" id="btn-new">Generate another</button>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-phase">
+    <div id="error-card">
+      <h2>Something went wrong</h2>
+      <p id="error-msg"></p>
+      <button class="btn btn-secondary" id="btn-error-reset">← Try again</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- History panel -->
+<div id="history-panel">
+  <div id="history-header">
+    <span>🕐 Render History</span>
+    <button id="btn-close-history">✕</button>
+  </div>
+  <div id="history-list">
+    <p style="color:var(--muted);text-align:center;padding:24px;font-size:13px">No renders yet this session</p>
+  </div>
+</div>
+
+<!-- Settings overlay (shared for both panels) -->
+<div id="settings-overlay"></div>
+
+<!-- Settings panel -->
+<div id="settings-panel">
+  <div id="settings-header">
+    <span>⚙ Settings</span>
+    <button id="btn-close-settings">✕</button>
+  </div>
+  <div id="settings-body">
+
+    <!-- Route Labels -->
+    <div class="settings-section">
+      <div class="settings-title">Route Labels</div>
+      <div class="settings-row">
+        <label>Departure</label>
+        <input type="text" id="label-start" placeholder="e.g. London Heathrow" />
+      </div>
+      <div class="settings-row">
+        <label>Destination</label>
+        <input type="text" id="label-end" placeholder="e.g. New York JFK" />
+      </div>
+      <div class="settings-row">
+        <label>Font Color</label>
+        <input type="color" id="label-font-color" value="#000000" />
+      </div>
+      <div class="settings-row">
+        <label>Badge Color</label>
+        <input type="color" id="label-bg-color" value="#FFD700" />
+      </div>
+      <div class="settings-title" style="margin-top:4px">Font Style</div>
+      <div id="font-style-grid">
+        <button class="font-opt active" data-font="system-ui, -apple-system, sans-serif" style="font-family:system-ui">Sans</button>
+        <button class="font-opt" data-font="Georgia, serif" style="font-family:Georgia">Serif</button>
+        <button class="font-opt" data-font="'Courier New', monospace" style="font-family:'Courier New'">Mono</button>
+        <button class="font-opt" data-font="Impact, 'Arial Narrow', sans-serif" style="font-family:Impact">Impact</button>
+      </div>
+      <div class="settings-title" style="margin-top:4px">Letter Case</div>
+      <div id="case-selector">
+        <button class="case-opt" data-case="none">Aa</button>
+        <button class="case-opt active" data-case="uppercase">AA</button>
+        <button class="case-opt" data-case="lowercase">aa</button>
+      </div>
+      <div class="settings-title" style="margin-top:4px">Weight &amp; Style</div>
+      <div id="bi-selector">
+        <button class="bi-opt" id="btn-bold">B</button>
+        <button class="bi-opt" id="btn-italic">I</button>
+      </div>
+    </div>
+
+    <!-- Plane Style -->
+    <div class="settings-section">
+      <div class="settings-title">Plane Style</div>
+      <select id="plane-style-select">
+        <option value="default">Default (Generic Jet)</option>
+        <option value="Airbus_A300">Airbus A300</option>
+        <option value="Airbus_A320">Airbus A320</option>
+        <option value="Airbus_A380">Airbus A380</option>
+        <option value="Boeing_707">Boeing 707</option>
+        <option value="Boeing_727">Boeing 727</option>
+        <option value="Boeing_747">Boeing 747</option>
+        <option value="Boeing_777">Boeing 777</option>
+        <option value="Boeing_787">Boeing 787</option>
+        <option value="Cessna_Citation">Cessna Citation</option>
+        <option value="Douglas_DC-10">Douglas DC-10</option>
+        <option value="Douglas_DC-3">Douglas DC-3</option>
+        <option value="Douglas_DC-9">Douglas DC-9</option>
+        <option value="Douglas_MD-11">Douglas MD-11</option>
+        <option value="Learjet_45">Learjet 45</option>
+      </select>
+    </div>
+
+    <!-- Colors -->
+    <div class="settings-section">
+      <div class="settings-title">Colors</div>
+      <div class="settings-row">
+        <label>Plane</label>
+        <input type="color" id="plane-color-s" value="#ffffff" />
+      </div>
+      <div class="settings-row">
+        <label>Trail</label>
+        <input type="color" id="line-color-s" value="#FFD700" />
+      </div>
+    </div>
+
+    <!-- Glow -->
+    <div class="settings-section">
+      <div class="settings-title">Plane Glow</div>
+      <div class="settings-row">
+        <label>Enable</label>
+        <div class="toggle-wrap">
+          <label class="toggle-switch">
+            <input type="checkbox" id="glow-enabled" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="settings-row" id="glow-color-row" style="opacity:0.4;pointer-events:none">
+        <label>Glow color</label>
+        <input type="color" id="glow-color" value="#FFD700" />
+      </div>
+      <div id="glow-intensity-row" style="opacity:0.4;pointer-events:none">
+        <div class="settings-title" style="margin-bottom:6px">Intensity</div>
+        <div id="intensity-selector">
+          <button class="intensity-opt active" data-intensity="1">1×</button>
+          <button class="intensity-opt" data-intensity="1.5">1.5×</button>
+          <button class="intensity-opt" data-intensity="2">2×</button>
+          <button class="intensity-opt" data-intensity="2.5">2.5×</button>
+          <button class="intensity-opt" data-intensity="3">3×</button>
+          <button class="intensity-opt" data-intensity="4">4×</button>
+          <button class="intensity-opt" data-intensity="5">5×</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trail Glow -->
+    <div class="settings-section">
+      <div class="settings-title">Trail Glow</div>
+      <div class="settings-row">
+        <label>Enable</label>
+        <div class="toggle-wrap">
+          <label class="toggle-switch">
+            <input type="checkbox" id="trail-glow-enabled" checked />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="settings-row" id="trail-glow-color-row">
+        <label>Glow color</label>
+        <input type="color" id="trail-glow-color" value="#FFD700" />
+      </div>
+      <div id="trail-glow-intensity-row">
+        <div class="settings-title" style="margin-bottom:6px">Intensity</div>
+        <div id="trail-intensity-selector">
+          <button class="trail-intensity-opt" data-intensity="0.5">0.5×</button>
+          <button class="trail-intensity-opt" data-intensity="1">1×</button>
+          <button class="trail-intensity-opt active" data-intensity="1.5">1.5×</button>
+          <button class="trail-intensity-opt" data-intensity="2">2×</button>
+          <button class="trail-intensity-opt" data-intensity="2.5">2.5×</button>
+          <button class="trail-intensity-opt" data-intensity="3">3×</button>
+          <button class="trail-intensity-opt" data-intensity="4">4×</button>
+          <button class="trail-intensity-opt" data-intensity="5">5×</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Speed -->
+    <div class="settings-section">
+      <div class="settings-title">Animation Speed</div>
+      <div id="speed-selector">
+        <button class="speed-opt" data-speed="0.5">🐢 Slow</button>
+        <button class="speed-opt active" data-speed="1">Normal</button>
+        <button class="speed-opt" data-speed="2">⚡ Fast</button>
+      </div>
+    </div>
+
+    <!-- Camera Effects -->
+    <div class="settings-section">
+      <div class="settings-title">Camera Effects</div>
+      <div class="settings-row">
+        <label>Pan</label>
+        <div class="toggle-wrap">
+          <label class="toggle-switch">
+            <input type="checkbox" id="pan-enabled" checked />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:11px;color:var(--muted)">Follow plane</span>
+        </div>
+      </div>
+      <div class="settings-row" id="pan-speed-row">
+        <label>Pan speed</label>
+        <div class="slider-row" style="flex:1">
+          <input type="range" id="pan-speed" min="0.5" max="1.5" step="0.05" value="1" />
+          <span class="slider-val" id="pan-speed-val">1.00×</span>
+        </div>
+      </div>
+      <div class="settings-row">
+        <label>Zoom</label>
+        <div class="toggle-wrap">
+          <label class="toggle-switch">
+            <input type="checkbox" id="zoom-enabled" checked />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:11px;color:var(--muted)">Zoom over time</span>
+        </div>
+      </div>
+      <div class="settings-row" id="zoom-amount-row">
+        <label>Zoom amount</label>
+        <div class="slider-row" style="flex:1">
+          <input type="range" id="zoom-amount" min="1" max="2" step="0.05" value="1.4" />
+          <span class="slider-val" id="zoom-amount-val">1.40×</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════
+const state = {
+  phase: 'map',
+  mapFile: null, tlX: null, tlY: null, zoom: null,
+  waypoints: [],   // [{ lat, lng, nx, ny }]  nx/ny = natural 1920×1080 pixels
+  pollTimer: null,
+  currentJobId: null,
+  jobHistory: JSON.parse(localStorage.getItem('fpv2-history') || '[]'),
+  bgPolls: {},     // jobId → intervalId for background polling
+};
+
+// ─── Settings state ────────────────────────────────────────────────────────────
+const settings = {
+  planeStyle:      'default',
+  glowEnabled:     false,
+  glowColor:       '#FFD700',
+  glowIntensity:   1,
+  trailGlowEnabled:  true,
+  trailGlowColor:    '#FFD700',
+  trailGlowIntensity: 1.5,
+  labelFontColor:  '#000000',
+  labelBgColor:    '#FFD700',
+  labelFontFamily: 'system-ui, -apple-system, sans-serif',
+  labelTextCase:   'uppercase',
+  labelBold:       false,
+  labelItalic:     false,
+  panEnabled:      true,
+  panSpeed:        1.0,
+  zoomEnabled:     true,
+  zoomMax:         1.4,
+  speed:           1,
+};
+
+// ─── Settings panel ────────────────────────────────────────────────────────────
+const panel   = document.getElementById('settings-panel');
+const overlay = document.getElementById('settings-overlay');
+
+function openSettings() {
+  panel.classList.add('open');
+  overlay.classList.add('open');
+}
+function closeSettings() {
+  panel.classList.remove('open');
+  overlay.classList.remove('open');
+}
+
+document.getElementById('btn-settings').addEventListener('click', openSettings);
+document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
+
+// ── Sync toolbar ↔ panel color pickers ──
+const planeColorToolbar = document.getElementById('plane-color');
+const lineColorToolbar  = document.getElementById('line-color');
+const planeColorPanel   = document.getElementById('plane-color-s');
+const lineColorPanel    = document.getElementById('line-color-s');
+
+planeColorToolbar.addEventListener('input', () => { planeColorPanel.value = planeColorToolbar.value; redrawCanvas(); });
+lineColorToolbar.addEventListener('input',  () => { lineColorPanel.value  = lineColorToolbar.value;  redrawCanvas(); });
+planeColorPanel.addEventListener('input',  () => { planeColorToolbar.value = planeColorPanel.value; redrawCanvas(); });
+lineColorPanel.addEventListener('input',   () => { lineColorToolbar.value  = lineColorPanel.value;  redrawCanvas(); });
+
+// ── Plane style picker ──
+document.getElementById('plane-style-select').addEventListener('change', function() {
+  settings.planeStyle = this.value;
+});
+
+// ── Glow toggle ──
+const glowCheck        = document.getElementById('glow-enabled');
+const glowColorRow     = document.getElementById('glow-color-row');
+const glowIntensityRow = document.getElementById('glow-intensity-row');
+glowCheck.addEventListener('change', () => {
+  settings.glowEnabled = glowCheck.checked;
+  const on = glowCheck.checked;
+  glowColorRow.style.opacity     = on ? '1' : '0.4';
+  glowColorRow.style.pointerEvents = on ? 'all' : 'none';
+  glowIntensityRow.style.opacity  = on ? '1' : '0.4';
+  glowIntensityRow.style.pointerEvents = on ? 'all' : 'none';
+});
+document.getElementById('glow-color').addEventListener('input', e => {
+  settings.glowColor = e.target.value;
+});
+
+// ── Glow intensity ──
+document.querySelectorAll('.intensity-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.intensity-opt').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.glowIntensity = parseFloat(btn.dataset.intensity);
+  });
+});
+
+// ── Trail Glow toggle ──
+const trailGlowCheck        = document.getElementById('trail-glow-enabled');
+const trailGlowColorRow     = document.getElementById('trail-glow-color-row');
+const trailGlowIntensityRow = document.getElementById('trail-glow-intensity-row');
+trailGlowCheck.addEventListener('change', () => {
+  settings.trailGlowEnabled = trailGlowCheck.checked;
+  const on = trailGlowCheck.checked;
+  trailGlowColorRow.style.opacity     = on ? '1' : '0.4';
+  trailGlowColorRow.style.pointerEvents = on ? 'all' : 'none';
+  trailGlowIntensityRow.style.opacity  = on ? '1' : '0.4';
+  trailGlowIntensityRow.style.pointerEvents = on ? 'all' : 'none';
+});
+document.getElementById('trail-glow-color').addEventListener('input', e => {
+  settings.trailGlowColor = e.target.value;
+});
+
+// ── Trail Glow intensity ──
+document.querySelectorAll('.trail-intensity-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.trail-intensity-opt').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.trailGlowIntensity = parseFloat(btn.dataset.intensity);
+  });
+});
+
+// ── Label colors ──
+document.getElementById('label-font-color').addEventListener('input', e => {
+  settings.labelFontColor = e.target.value;
+});
+document.getElementById('label-bg-color').addEventListener('input', e => {
+  settings.labelBgColor = e.target.value;
+});
+
+// ── Label font style ──
+document.querySelectorAll('.font-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.font-opt').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.labelFontFamily = btn.dataset.font;
+  });
+});
+
+// ── Label case ──
+document.querySelectorAll('.case-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.case-opt').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.labelTextCase = btn.dataset.case;
+  });
+});
+
+// ── Bold / Italic toggles ──
+document.getElementById('btn-bold').addEventListener('click', function() {
+  settings.labelBold = !settings.labelBold;
+  this.classList.toggle('active', settings.labelBold);
+});
+document.getElementById('btn-italic').addEventListener('click', function() {
+  settings.labelItalic = !settings.labelItalic;
+  this.classList.toggle('active', settings.labelItalic);
+});
+
+// ── Speed selector ──
+document.querySelectorAll('.speed-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.speed-opt').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.speed = parseFloat(btn.dataset.speed);
+  });
+});
+
+// ── Camera Effects ──
+const panSpeedRow   = document.getElementById('pan-speed-row');
+const zoomAmountRow = document.getElementById('zoom-amount-row');
+
+document.getElementById('pan-enabled').addEventListener('change', function() {
+  settings.panEnabled = this.checked;
+  panSpeedRow.style.opacity = this.checked ? '1' : '0.4';
+  panSpeedRow.style.pointerEvents = this.checked ? 'all' : 'none';
+});
+document.getElementById('pan-speed').addEventListener('input', function() {
+  settings.panSpeed = parseFloat(this.value);
+  document.getElementById('pan-speed-val').textContent = parseFloat(this.value).toFixed(2) + '×';
+});
+document.getElementById('zoom-enabled').addEventListener('change', function() {
+  settings.zoomEnabled = this.checked;
+  zoomAmountRow.style.opacity = this.checked ? '1' : '0.4';
+  zoomAmountRow.style.pointerEvents = this.checked ? 'all' : 'none';
+});
+document.getElementById('zoom-amount').addEventListener('input', function() {
+  settings.zoomMax = parseFloat(this.value);
+  document.getElementById('zoom-amount-val').textContent = parseFloat(this.value).toFixed(2) + '×';
+});
+
+// ═══════════════════════════════════════════════
+// Mercator helpers (mirrors server)
+// ═══════════════════════════════════════════════
+const TILE_SIZE = 256;
+
+function worldPixelToLngLat(wx, wy, zoom) {
+  const n = Math.pow(2, zoom) * TILE_SIZE;
+  const lng = (wx / n) * 360 - 180;
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * wy / n)));
+  return { lat: latRad * 180 / Math.PI, lng };
+}
+
+// Convert a browser click (clientX/Y) over the map-img → { lat, lng, nx, ny }
+function clickToLatLng(clientX, clientY) {
+  const img  = document.getElementById('map-img');
+  const rect = img.getBoundingClientRect();
+  const nx = (clientX - rect.left) * (1920 / rect.width);
+  const ny = (clientY - rect.top)  * (1080 / rect.height);
+  const wx = state.tlX + nx;
+  const wy = state.tlY + ny;
+  return { ...worldPixelToLngLat(wx, wy, state.zoom), nx, ny };
+}
+
+// ═══════════════════════════════════════════════
+// Phase management
+// ═══════════════════════════════════════════════
+const phaseEls = {
+  map:      document.getElementById('map-phase'),
+  draw:     document.getElementById('draw-phase'),
+  progress: document.getElementById('progress-phase'),
+  download: document.getElementById('download-phase'),
+  error:    document.getElementById('error-phase'),
+};
+const phaseLabels = { map:'Navigate map', draw:'Draw flight path', progress:'Rendering…', download:'Done', error:'Error' };
+
+function setPhase(name) {
+  state.phase = name;
+  for (const [k, el] of Object.entries(phaseEls)) {
+    el.style.display = k === name ? 'flex' : 'none';
+  }
+  document.getElementById('phase-indicator').textContent = phaseLabels[name] || name;
+}
+
+// ═══════════════════════════════════════════════
+// Phase 1 — Leaflet map
+// ═══════════════════════════════════════════════
+const leafletMap = L.map('leaflet-map', { center: [20, 0], zoom: 3 });
+
+// Define tile layer styles
+const tileLayers = {
+  satellite: L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '© Esri, Maxar, Earthstar Geographics',
+      maxZoom: 18
+    }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+      opacity: 0.8,
+      maxZoom: 18
+    })
+  ]),
+  osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+    subdomains: ['a', 'b', 'c']
+  })
+};
+
+// Set initial tile layer
+let currentTileLayer = tileLayers.satellite;
+currentTileLayer.addTo(leafletMap);
+
+// Map style selector
+document.getElementById('map-style-selector').addEventListener('change', function() {
+  leafletMap.removeLayer(currentTileLayer);
+  currentTileLayer = tileLayers[this.value];
+  currentTileLayer.addTo(leafletMap);
+});
+
+document.getElementById('btn-capture').addEventListener('click', async () => {
+  const center = leafletMap.getCenter();
+  const zoom   = Math.round(leafletMap.getZoom());
+  const mapStyle = document.getElementById('map-style-selector').value;
+
+  const overlay = document.getElementById('snapshot-overlay');
+  overlay.classList.add('active');
+  document.getElementById('snapshot-status-text').textContent = 'Fetching map tiles…';
+
+  try {
+    // Add 60s timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    const res  = await fetch('/api/snapshot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ center: { lat: center.lat, lng: center.lng }, zoom, mapStyle }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Snapshot failed');
+
+    state.mapFile = data.mapFile;
+    state.tlX     = data.tlX;
+    state.tlY     = data.tlY;
+    state.zoom    = data.zoom;
+    state.waypoints = [];
+
+    const imgEl = document.getElementById('map-img');
+    imgEl.src = `data:image/png;base64,${data.imageBase64}`;
+    await new Promise((ok, fail) => { imgEl.onload = ok; imgEl.onerror = fail; });
+
+    overlay.classList.remove('active');
+    renderWaypointChips();
+    setPhase('draw');
+    requestAnimationFrame(() => requestAnimationFrame(setupCanvas));
+  } catch (err) {
+    overlay.classList.remove('active');
+    if (err.name === 'AbortError') {
+      alert('Snapshot timed out after 60 seconds. Try zooming out or choosing a different map style.');
+    } else {
+      alert('Snapshot failed: ' + err.message);
+    }
+    console.error('Snapshot error:', err);
+  }
+});
+
+// ═══════════════════════════════════════════════
+// Phase 2 — Draw mode
+// ═══════════════════════════════════════════════
+const canvas = document.getElementById('draw-canvas');
+const ctx    = canvas.getContext('2d');
+
+function setupCanvas() {
+  const img       = document.getElementById('map-img');
+  const imgRect   = img.getBoundingClientRect();
+  const container = document.getElementById('draw-canvas-container');
+  const cRect     = container.getBoundingClientRect();
+
+  canvas.style.left   = (imgRect.left - cRect.left) + 'px';
+  canvas.style.top    = (imgRect.top  - cRect.top)  + 'px';
+  canvas.style.width  = imgRect.width  + 'px';
+  canvas.style.height = imgRect.height + 'px';
+  canvas.width  = imgRect.width;
+  canvas.height = imgRect.height;
+  redrawCanvas();
+}
+
+window.addEventListener('resize', () => { if (state.phase === 'draw') setupCanvas(); });
+
+canvas.addEventListener('mousemove', (e) => {
+  try {
+    const { lat, lng } = clickToLatLng(e.clientX, e.clientY);
+    document.getElementById('coords-display').textContent =
+      `${lat.toFixed(5)}°N, ${lng.toFixed(5)}°E`;
+  } catch {}
+});
+canvas.addEventListener('mouseleave', () => {
+  document.getElementById('coords-display').textContent = 'hover to see coordinates';
+});
+
+canvas.addEventListener('click', (e) => {
+  const pt = clickToLatLng(e.clientX, e.clientY);
+  state.waypoints.push(pt);
+  renderWaypointChips();
+  redrawCanvas();
+});
+
+function redrawCanvas() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const wps        = state.waypoints;
+  const planeColor = document.getElementById('plane-color').value;
+  const lineColor  = document.getElementById('line-color').value;
+  if (!wps.length) return;
+
+  // natural px → canvas px
+  const toC = (nx, ny) => ({
+    x: nx * (canvas.width  / 1920),
+    y: ny * (canvas.height / 1080),
+  });
+
+  // Dashed path lines
+  if (wps.length > 1) {
+    ctx.beginPath();
+    const p0 = toC(wps[0].nx, wps[0].ny);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < wps.length; i++) {
+      const p = toC(wps[i].nx, wps[i].ny);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth   = 2.5;
+    ctx.setLineDash([8, 6]);
+    ctx.globalAlpha = 0.85;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+
+  // Dots + labels
+  wps.forEach((wp, i) => {
+    const p = toC(wp.nx, wp.ny);
+
+    // Glow ring
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 15, 0, Math.PI * 2);
+    ctx.fillStyle = planeColor + '28';
+    ctx.fill();
+
+    // Filled dot
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = planeColor;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Number
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(i + 1, p.x, p.y);
+
+    // Coordinate label pill
+    const label = `${wp.lat.toFixed(3)}°, ${wp.lng.toFixed(3)}°`;
+    ctx.font = '10px monospace';
+    const tw = ctx.measureText(label).width;
+    const lx = p.x + 16, ly = p.y - 16;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(lx - 3, ly - 8, tw + 8, 17, 4);
+    else ctx.rect(lx - 3, ly - 8, tw + 8, 17);
+    ctx.fill();
+    ctx.fillStyle = planeColor;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(label, lx, ly + 2);
+  });
+}
+
+function renderWaypointChips() {
+  const wps = state.waypoints;
+  document.getElementById('waypoints-list').innerHTML = wps.map((wp, i) => `
+    <div class="wp-chip">
+      <span class="wp-num">${i + 1}</span>
+      ${wp.lat.toFixed(3)}°, ${wp.lng.toFixed(3)}°
+    </div>
+  `).join('');
+  const n = wps.length;
+  document.getElementById('point-count').textContent = n === 1 ? '1 point' : `${n} points`;
+  document.getElementById('btn-generate').disabled = n < 2;
+}
+
+document.getElementById('btn-undo').addEventListener('click', () => {
+  state.waypoints.pop(); renderWaypointChips(); redrawCanvas();
+});
+document.getElementById('btn-clear').addEventListener('click', () => {
+  state.waypoints = []; renderWaypointChips(); redrawCanvas();
+});
+document.getElementById('btn-back-to-map').addEventListener('click', () => {
+  setPhase('map');
+  setTimeout(() => leafletMap.invalidateSize(), 100);
+});
+// color pickers already wired above in settings sync block
+document.getElementById('btn-generate').addEventListener('click', startRender);
+
+// ═══════════════════════════════════════════════
+// Phase 3 — Render
+// ═══════════════════════════════════════════════
+async function startRender() {
+  const n   = state.waypoints.length;
+  const wps = state.waypoints.map((wp, i) => ({
+    lat: wp.lat, lng: wp.lng,
+    label: i === 0 ? (document.getElementById('label-start').value.trim() || '')
+         : i === n - 1 ? (document.getElementById('label-end').value.trim() || '')
+         : '',
+    delayAfter: 0,
+  }));
+
+  closeSettings();
+  setPhase('progress');
+  document.getElementById('progress-bar').style.width = '0%';
+  document.getElementById('progress-pct').textContent = '0%';
+  document.getElementById('progress-phase-text').textContent = 'Starting…';
+
+  try {
+    const res = await fetch('/api/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        waypoints:   wps,
+        planeColor:  document.getElementById('plane-color').value,
+        lineColor:   document.getElementById('line-color').value,
+        planeStyle:     settings.planeStyle,
+        glowEnabled:    settings.glowEnabled,
+        glowColor:      settings.glowColor,
+        glowIntensity:  settings.glowIntensity,
+        trailGlowEnabled:  settings.trailGlowEnabled,
+        trailGlowColor:    settings.trailGlowColor,
+        trailGlowIntensity: settings.trailGlowIntensity,
+        labelFontColor:  settings.labelFontColor,
+        labelBgColor:    settings.labelBgColor,
+        labelFontFamily: settings.labelFontFamily,
+        labelTextCase:   settings.labelTextCase,
+        labelBold:       settings.labelBold,
+        labelItalic:     settings.labelItalic,
+        panEnabled:      settings.panEnabled,
+        panSpeed:        settings.panSpeed,
+        zoomEnabled:     settings.zoomEnabled,
+        zoomMax:         settings.zoomMax,
+        speed:           settings.speed,
+        mapFile:     state.mapFile,
+        tlX:         state.tlX,
+        tlY:         state.tlY,
+        zoom:        state.zoom,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Render failed');
+    state.currentJobId = data.jobId;
+    const startLbl = document.getElementById('label-start').value.trim();
+    const endLbl   = document.getElementById('label-end').value.trim();
+    const routeLabel = [startLbl, endLbl].filter(Boolean).join(' → ') || `Render #${state.jobHistory.length + 1}`;
+    addJobToHistory(data.jobId, routeLabel);
+    pollStatus(data.jobId);
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+function pollStatus(jobId) {
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(async () => {
+    try {
+      const res  = await fetch(`/api/status/${jobId}`);
+      const data = await res.json();
+      const isQueued = data.status === 'queued';
+      const queueLabel = isQueued && data.queuePosition != null
+        ? `Waiting in queue — position ${data.queuePosition} of ${data.queueLength}`
+        : (data.phase || '');
+      document.getElementById('progress-phase-text').textContent = queueLabel;
+      document.getElementById('progress-bar').style.width = (data.percent || 0) + '%';
+      document.getElementById('progress-pct').textContent  = isQueued ? 'Queued' : (data.percent || 0) + '%';
+      if (data.status === 'done') {
+        clearInterval(state.pollTimer);
+        updateJobInHistory(jobId, { status: 'done', percent: 100 });
+        const videoUrl = `/api/download/${jobId}`;
+        document.getElementById('btn-download').href = videoUrl;
+        document.getElementById('preview-video').src = videoUrl;
+        setPhase('download');
+      } else if (data.status === 'error') {
+        clearInterval(state.pollTimer);
+        updateJobInHistory(jobId, { status: 'error', percent: 0 });
+        showError(data.error || 'Unknown error');
+      } else {
+        updateJobInHistory(jobId, { status: data.status, percent: data.percent || 0 });
+      }
+    } catch (err) {
+      clearInterval(state.pollTimer);
+      showError(err.message);
+    }
+  }, 1200);
+}
+
+// ═══════════════════════════════════════════════
+// Job history
+// ═══════════════════════════════════════════════
+function saveHistory() {
+  // Only persist last 50, and strip large fields
+  const slim = state.jobHistory.slice(0, 50).map(({ jobId, label, startedAt, status, percent }) =>
+    ({ jobId, label, startedAt, status, percent })
+  );
+  localStorage.setItem('fpv2-history', JSON.stringify(slim));
+}
+
+function addJobToHistory(jobId, label) {
+  state.jobHistory.unshift({ jobId, label, startedAt: Date.now(), status: 'queued', percent: 0 });
+  if (state.jobHistory.length > 50) state.jobHistory.pop();
+  saveHistory();
+  updateHistoryBadge();
+  renderHistoryPanel();
+}
+
+function updateJobInHistory(jobId, patch) {
+  const entry = state.jobHistory.find(e => e.jobId === jobId);
+  if (entry) { Object.assign(entry, patch); saveHistory(); renderHistoryPanel(); updateHistoryBadge(); }
+}
+
+function updateHistoryBadge() {
+  const badge = document.getElementById('history-badge');
+  const count = state.jobHistory.length;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'inline-flex' : 'none';
+}
+
+function renderHistoryPanel() {
+  const list = document.getElementById('history-list');
+  if (state.jobHistory.length === 0) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:24px;font-size:13px">No renders yet this session</p>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const entry of state.jobHistory) {
+    const el = document.createElement('div');
+    el.className = 'history-entry';
+    const statusColor = entry.status === 'done' ? '#4caf50'
+      : entry.status === 'error' ? 'var(--danger)' : 'var(--accent)';
+    const statusLabel = entry.status === 'done' ? '✓ Done'
+      : entry.status === 'error' ? '✕ Error'
+      : entry.status === 'queued' ? '⏳ Queued'
+      : `⟳ ${entry.percent}%`;
+    const time = new Date(entry.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const pct  = entry.percent || 0;
+    el.innerHTML = `
+      <div class="history-entry-header">
+        <span class="history-label">${entry.label || entry.jobId.slice(0, 8)}</span>
+        <span class="history-status" style="color:${statusColor}">${statusLabel}</span>
+      </div>
+      <div class="history-progress"><div class="history-progress-bar" style="width:${pct}%"></div></div>
+      <div class="history-entry-sub">
+        <span style="color:var(--muted);font-size:11px">${time} · ${entry.jobId.slice(0, 8)}</span>
+        ${entry.status === 'done'
+          ? `<a href="/api/download/${entry.jobId}" download="flight-path-video.mp4" class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 12px;text-decoration:none">⬇ Download</a>`
+          : ''}
+      </div>`;
+    list.appendChild(el);
+  }
+}
+
+function startBackgroundPoll(jobId) {
+  if (state.bgPolls[jobId]) return;
+  state.bgPolls[jobId] = setInterval(async () => {
+    try {
+      const res  = await fetch(`/api/status/${jobId}`);
+      const data = await res.json();
+      if (data.status === 'done') {
+        clearInterval(state.bgPolls[jobId]); delete state.bgPolls[jobId];
+        updateJobInHistory(jobId, { status: 'done', percent: 100 });
+      } else if (data.status === 'error') {
+        clearInterval(state.bgPolls[jobId]); delete state.bgPolls[jobId];
+        updateJobInHistory(jobId, { status: 'error', percent: 0 });
+      } else {
+        updateJobInHistory(jobId, { status: data.status, percent: data.percent || 0 });
+      }
+    } catch {}
+  }, 2500);
+}
+
+// History panel open/close
+document.getElementById('btn-history').addEventListener('click', () => {
+  renderHistoryPanel();
+  document.getElementById('history-panel').classList.add('open');
+  document.getElementById('settings-overlay').classList.add('open');
+});
+document.getElementById('btn-close-history').addEventListener('click', () => {
+  document.getElementById('history-panel').classList.remove('open');
+  document.getElementById('settings-overlay').classList.remove('open');
+});
+
+// "Create Another" — background the current render, go back to map
+document.getElementById('btn-create-another').addEventListener('click', () => {
+  clearInterval(state.pollTimer);
+  if (state.currentJobId) startBackgroundPoll(state.currentJobId);
+  state.waypoints = [];
+  state.currentJobId = null;
+  setPhase('map');
+  setTimeout(() => leafletMap.invalidateSize(), 100);
+});
+
+// ═══════════════════════════════════════════════
+// Error + reset
+// ═══════════════════════════════════════════════
+function showError(msg) {
+  document.getElementById('error-msg').textContent = msg;
+  setPhase('error');
+}
+document.getElementById('btn-error-reset').addEventListener('click', () => {
+  clearInterval(state.pollTimer); setPhase('draw');
+});
+document.getElementById('btn-new').addEventListener('click', () => {
+  clearInterval(state.pollTimer);
+  state.waypoints = [];
+  setPhase('map');
+  setTimeout(() => leafletMap.invalidateSize(), 100);
+});
+
+// ═══════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════
+// Close either panel when clicking the overlay
+document.getElementById('settings-overlay').addEventListener('click', () => {
+  document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('history-panel').classList.remove('open');
+  document.getElementById('settings-overlay').classList.remove('open');
+});
+
+updateHistoryBadge();
+renderHistoryPanel();
+setPhase('map');
+</script>
+</body>
+</html>

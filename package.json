@@ -1,0 +1,28 @@
+{
+  "name": "remotion-maps",
+  "version": "0.0.1",
+  "description": "Remotion Maps Video Project",
+  "scripts": {
+    "start": "remotion studio",
+    "build": "remotion render",
+    "upgrade": "remotion upgrade",
+    "fetch-map": "node scripts/fetch-map.js",
+    "server": "node server.js"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.292",
+    "express": "^5.2.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.292",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.4.5"
+  },
+  "remotion": {
+    "entryPoint": "./src/index.ts"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+out/
+public/*.png
+src/mapConfig.json
+.DS_Store
+*.log
+.env
