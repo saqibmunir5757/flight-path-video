@@ -1,5 +1,5 @@
 const { renderMediaOnLambda } = require("@remotion/lambda/client");
-const { generateMapFromCoords } = require("../scripts/map-generator");
+const { generateMapFromCoords } = require("../scripts/config-generator");
 
 // Your deployed Remotion site
 const SERVE_URL = "https://remotionlambda-apsouth1-q29v20bgvr.s3.ap-south-1.amazonaws.com/sites/3w54aetk46/index.html";
