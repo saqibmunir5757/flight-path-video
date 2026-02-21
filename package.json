@@ -4,7 +4,7 @@
   "description": "Remotion Maps Video Project",
   "scripts": {
     "start": "remotion studio",
-    "build": "remotion render",
+    "build": "echo 'No build needed for Vercel deployment'",
     "upgrade": "remotion upgrade",
     "fetch-map": "node scripts/fetch-map.js",
     "server": "node server.js"
