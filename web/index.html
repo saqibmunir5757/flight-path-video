@@ -130,11 +130,14 @@
       position: absolute;
       inset: 0;
       display: none;
+      z-index: 1;
     }
     #draw-canvas {
       position: absolute;
       top: 0; left: 0;
       cursor: crosshair;
+      z-index: 10;
+      pointer-events: auto;
     }
     #coords-display {
       position: absolute;
@@ -146,7 +149,7 @@
       padding: 4px 10px;
       border-radius: 6px;
       pointer-events: none;
-      z-index: 10;
+      z-index: 20;
     }
 
     #draw-toolbar {
@@ -1377,7 +1380,17 @@ async function startRender() {
         zoom:        state.zoom,
       }),
     });
-    const data = await res.json();
+
+    let data;
+    try {
+      data = await res.json();
+    } catch (jsonErr) {
+      // Response wasn't JSON - get the text to see the actual error
+      const text = await res.text();
+      console.error('[Render] Non-JSON response:', text);
+      throw new Error(`Server error: ${text.substring(0, 200)}`);
+    }
+
     if (!res.ok) throw new Error(data.error || 'Render failed');
     state.currentJobId = data.jobId;
     const startLbl = document.getElementById('label-start').value.trim();
@@ -1386,6 +1399,7 @@ async function startRender() {
     addJobToHistory(data.jobId, routeLabel);
     pollStatus(data.jobId);
   } catch (err) {
+    console.error('[Render] Error:', err);
     showError(err.message);
   }
 }
