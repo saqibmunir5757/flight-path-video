@@ -10,11 +10,13 @@
     "server": "node server.js"
   },
   "dependencies": {
-    "@remotion/cli": "4.0.292",
+    "@remotion/cli": "4.0.427",
+    "@remotion/lambda": "4.0.427",
+    "@remotion/webcodecs": "4.0.427",
     "express": "^5.2.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "remotion": "4.0.292",
+    "remotion": "4.0.427",
     "sharp": "^0.34.5"
   },
   "devDependencies": {

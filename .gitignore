@@ -5,3 +5,5 @@ src/mapConfig.json
 .DS_Store
 *.log
 .env
+.vercel
+build/
