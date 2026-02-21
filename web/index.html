@@ -982,44 +982,25 @@ function worldPixelToLngLat(wx, wy, zoom) {
 
 // Convert a browser click (clientX/Y) over the map → { lat, lng, nx, ny }
 function clickToLatLng(clientX, clientY) {
-  if (state.hasPreviewImage) {
-    // Static image mode - use image dimensions
-    const img  = document.getElementById('map-img');
-    const rect = img.getBoundingClientRect();
-    const nx = (clientX - rect.left) * (1920 / rect.width);
-    const ny = (clientY - rect.top)  * (1080 / rect.height);
-    const wx = state.tlX + nx;
-    const wy = state.tlY + ny;
-    return { ...worldPixelToLngLat(wx, wy, state.zoom), nx, ny };
-  } else {
-    // Live map mode - get lat/lng from Leaflet map using canvas coordinates
-    const canvasEl = document.getElementById('draw-canvas');
-    const rect = canvasEl.getBoundingClientRect();
+  const canvasEl = document.getElementById('draw-canvas');
+  const rect = canvasEl.getBoundingClientRect();
 
-    // Click position relative to canvas
-    const canvasX = clientX - rect.left;
-    const canvasY = clientY - rect.top;
+  // Click position relative to canvas
+  const canvasX = clientX - rect.left;
+  const canvasY = clientY - rect.top;
 
-    // Convert canvas pixel to container pixel (Leaflet uses container coordinates)
-    const point = leafletMapDraw.containerPointToLatLng([canvasX, canvasY]);
-    const lat = point.lat;
-    const lng = point.lng;
+  // Scale canvas pixels to natural 1920×1080 coordinates
+  const nx = canvasX * (1920 / canvasEl.width);
+  const ny = canvasY * (1080 / canvasEl.height);
 
-    // Calculate world pixel coordinates
-    function lngLatToWorldPixel(lng, lat, zoom) {
-      const n = Math.pow(2, zoom) * TILE_SIZE;
-      const x = ((lng + 180) / 360) * n;
-      const latRad = (lat * Math.PI) / 180;
-      const y = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-      return { x, y };
-    }
+  // Calculate world pixel coordinates
+  const wx = state.tlX + nx;
+  const wy = state.tlY + ny;
 
-    const worldPx = lngLatToWorldPixel(lng, lat, state.zoom);
-    const nx = worldPx.x - state.tlX;
-    const ny = worldPx.y - state.tlY;
+  // Convert world pixels to lat/lng using Mercator projection
+  const { lat, lng } = worldPixelToLngLat(wx, wy, state.zoom);
 
-    return { lat, lng, nx, ny };
-  }
+  return { lat, lng, nx, ny };
 }
 
 // ═══════════════════════════════════════════════

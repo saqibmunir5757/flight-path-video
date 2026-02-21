@@ -5,6 +5,7 @@ const { generateMapFromCoords } = require("../scripts/config-generator");
 const SERVE_URL = "https://remotionlambda-apsouth1-q29v20bgvr.s3.ap-south-1.amazonaws.com/sites/3w54aetk46/index.html";
 const REGION = "ap-south-1";
 const FUNCTION_NAME = "remotion-render-4-0-427-mem2048mb-disk2048mb-120sec";
+const BUCKET_NAME = "remotionlambda-apsouth1-q29v20bgvr";
 
 module.exports = async (req, res) => {
   // CORS
@@ -85,7 +86,8 @@ module.exports = async (req, res) => {
       zoom,
     });
 
-    console.log(`[Lambda Render] Starting render: ${waypoints.length} waypoints`);
+    const startTime = Date.now();
+    console.log(`[Lambda Render] Config generated, invoking Lambda...`);
 
     // Render on Lambda
     const { renderId, bucketName } = await renderMediaOnLambda({
@@ -100,7 +102,8 @@ module.exports = async (req, res) => {
       privacy: "public",
     });
 
-    console.log(`[Lambda Render] Started: ${renderId}`);
+    const elapsed = Date.now() - startTime;
+    console.log(`[Lambda Render] Started successfully: ${renderId} (took ${elapsed}ms)`);
 
     // Return render ID and bucket info
     return res.status(200).json({
