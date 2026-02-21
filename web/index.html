@@ -1067,9 +1067,16 @@ document.getElementById('btn-capture').addEventListener('click', async () => {
     state.zoom    = data.zoom;
     state.waypoints = [];
 
+    // Load image preview only if available (Vercel doesn't provide preview)
     const imgEl = document.getElementById('map-img');
-    imgEl.src = `data:image/png;base64,${data.imageBase64}`;
-    await new Promise((ok, fail) => { imgEl.onload = ok; imgEl.onerror = fail; });
+    if (data.imageBase64 && data.imageBase64.length > 0) {
+      imgEl.src = `data:image/png;base64,${data.imageBase64}`;
+      await new Promise((ok, fail) => { imgEl.onload = ok; imgEl.onerror = fail; });
+    } else {
+      // No preview image (Vercel serverless limitation)
+      // Image will be generated during render
+      console.log('[Snapshot] Map bounds calculated, no preview available');
+    }
 
     overlay.classList.remove('active');
     renderWaypointChips();
