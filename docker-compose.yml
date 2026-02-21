@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  flight-path-video:
+    build: .
+    container_name: flight-path-video
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    volumes:
+      - ./out:/app/out
+      - ./public:/app/public
+    networks:
+      - flight-path-network
+
+networks:
+  flight-path-network:
+    driver: bridge
