@@ -38,21 +38,31 @@ module.exports = async (req, res) => {
     const OUT_W = 1920;
     const OUT_H = 1080;
 
+    console.log(`[snapshot] center=${center.lat.toFixed(4)},${center.lng.toFixed(4)} zoom=${z}`);
+
     // Calculate top-left world pixel
     const centerPx = lngLatToWorldPixel(center.lng, center.lat, z);
     const tlX = Math.round(centerPx.x - OUT_W / 2);
     const tlY = Math.round(centerPx.y - OUT_H / 2);
 
+    console.log(`[snapshot] Calculated bounds: tlX=${tlX}, tlY=${tlY}, zoom=${z}`);
+
     // Return map bounds - frontend will use these for rendering
-    return res.status(200).json({
-      mapFile: `map-${Date.now()}.png`, // Placeholder name
+    const response = {
+      mapFile: `map-${Date.now()}.png`,
       tlX,
       tlY,
       zoom: z,
-      imageBase64: null, // No image in Vercel (would need S3 upload)
-    });
+      imageBase64: "", // Empty string instead of null for frontend compatibility
+    };
+
+    console.log("[snapshot] Success");
+    return res.status(200).json(response);
   } catch (err) {
-    console.error("[snapshot] Error:", err.message);
-    return res.status(500).json({ error: err.message });
+    console.error("[snapshot] Error:", err);
+    return res.status(500).json({
+      error: err?.message || "Unknown error occurred",
+      stack: err?.stack || ""
+    });
   }
 };
