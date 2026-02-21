@@ -1,7 +1,4 @@
-// Vercel-compatible snapshot API - generates map tiles and returns coordinates
-// Note: Cannot save files in Vercel serverless, so we just return the map bounds
-const https = require("https");
-
+// Vercel-compatible snapshot API
 const TILE_SIZE = 256;
 
 function lngLatToWorldPixel(lng, lat, zoom) {
@@ -13,10 +10,10 @@ function lngLatToWorldPixel(lng, lat, zoom) {
   return { x, y };
 }
 
-module.exports = async (req, res) => {
-  // Set CORS headers
+module.exports = (req, res) => {
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
@@ -24,45 +21,53 @@ module.exports = async (req, res) => {
   }
 
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  const { center, zoom } = req.body;
-
-  if (!center?.lat || !center?.lng || !zoom) {
-    return res.status(400).json({ error: "center { lat, lng } and zoom are required" });
+    return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
   try {
+    // Parse body (Vercel handles this automatically, but let's be defensive)
+    const body = req.body || {};
+    const { center, zoom, mapStyle } = body;
+
+    console.log("[snapshot] Received:", JSON.stringify(body));
+
+    if (!center || typeof center.lat !== 'number' || typeof center.lng !== 'number') {
+      return res.status(400).json({
+        error: "Invalid request: center { lat, lng } required",
+        received: body
+      });
+    }
+
+    if (!zoom || typeof zoom !== 'number') {
+      return res.status(400).json({
+        error: "Invalid request: zoom (number) required",
+        received: body
+      });
+    }
+
     const z = Math.round(zoom);
     const OUT_W = 1920;
     const OUT_H = 1080;
 
-    console.log(`[snapshot] center=${center.lat.toFixed(4)},${center.lng.toFixed(4)} zoom=${z}`);
-
-    // Calculate top-left world pixel
     const centerPx = lngLatToWorldPixel(center.lng, center.lat, z);
     const tlX = Math.round(centerPx.x - OUT_W / 2);
     const tlY = Math.round(centerPx.y - OUT_H / 2);
 
-    console.log(`[snapshot] Calculated bounds: tlX=${tlX}, tlY=${tlY}, zoom=${z}`);
-
-    // Return map bounds - frontend will use these for rendering
     const response = {
       mapFile: `map-${Date.now()}.png`,
       tlX,
       tlY,
       zoom: z,
-      imageBase64: "", // Empty string instead of null for frontend compatibility
+      imageBase64: ""
     };
 
-    console.log("[snapshot] Success");
+    console.log("[snapshot] Success:", response);
     return res.status(200).json(response);
   } catch (err) {
     console.error("[snapshot] Error:", err);
     return res.status(500).json({
-      error: err?.message || "Unknown error occurred",
-      stack: err?.stack || ""
+      error: err.message || "Internal server error",
+      details: err.stack
     });
   }
 };
