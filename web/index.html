@@ -992,10 +992,16 @@ function clickToLatLng(clientX, clientY) {
     const wy = state.tlY + ny;
     return { ...worldPixelToLngLat(wx, wy, state.zoom), nx, ny };
   } else {
-    // Live map mode - get lat/lng from Leaflet map
-    const container = leafletMapDraw.getContainer();
-    const rect = container.getBoundingClientRect();
-    const point = leafletMapDraw.containerPointToLatLng([clientX - rect.left, clientY - rect.top]);
+    // Live map mode - get lat/lng from Leaflet map using canvas coordinates
+    const canvasEl = document.getElementById('draw-canvas');
+    const rect = canvasEl.getBoundingClientRect();
+
+    // Click position relative to canvas
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
+
+    // Convert canvas pixel to container pixel (Leaflet uses container coordinates)
+    const point = leafletMapDraw.containerPointToLatLng([canvasX, canvasY]);
     const lat = point.lat;
     const lng = point.lng;
 
@@ -1381,12 +1387,12 @@ async function startRender() {
       }),
     });
 
+    // Read response as text first, then parse as JSON
+    const text = await res.text();
     let data;
     try {
-      data = await res.json();
+      data = JSON.parse(text);
     } catch (jsonErr) {
-      // Response wasn't JSON - get the text to see the actual error
-      const text = await res.text();
       console.error('[Render] Non-JSON response:', text);
       throw new Error(`Server error: ${text.substring(0, 200)}`);
     }
