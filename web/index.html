@@ -783,6 +783,13 @@
 
 <script>
 // ═══════════════════════════════════════════════
+// Configuration
+// ═══════════════════════════════════════════════
+// IMPORTANT: Update this with your Railway URL after deployment!
+// Example: 'https://flight-path-video-production.up.railway.app'
+const RENDER_API_BASE = '';  // Leave empty to use Vercel API (will timeout on free tier)
+
+// ═══════════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════════
 const state = {
@@ -1336,7 +1343,10 @@ async function startRender() {
   document.getElementById('progress-phase-text').textContent = 'Starting…';
 
   try {
-    const res = await fetch('/api/render', {
+    // Use Railway API if configured, otherwise fall back to Vercel (will timeout)
+    const renderUrl = RENDER_API_BASE ? `${RENDER_API_BASE}/api/render` : '/api/render';
+
+    const res = await fetch(renderUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
