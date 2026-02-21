@@ -126,6 +126,11 @@
       object-fit: contain; display: block;
       user-select: none; -webkit-user-drag: none;
     }
+    #leaflet-map-draw {
+      position: absolute;
+      inset: 0;
+      display: none;
+    }
     #draw-canvas {
       position: absolute;
       top: 0; left: 0;
@@ -502,6 +507,7 @@
   <div id="draw-phase">
     <div id="draw-canvas-container">
       <img id="map-img" alt="Captured map" draggable="false" />
+      <div id="leaflet-map-draw"></div>
       <canvas id="draw-canvas"></canvas>
       <div id="coords-display">hover to see coordinates</div>
     </div>
@@ -784,6 +790,7 @@ const state = {
   currentJobId: null,
   jobHistory: JSON.parse(localStorage.getItem('fpv2-history') || '[]'),
   bgPolls: {},     // jobId → intervalId for background polling
+  hasPreviewImage: false,  // Track if we have a preview image
 };
 
 // ─── Settings state ────────────────────────────────────────────────────────────
@@ -970,15 +977,40 @@ function worldPixelToLngLat(wx, wy, zoom) {
   return { lat: latRad * 180 / Math.PI, lng };
 }
 
-// Convert a browser click (clientX/Y) over the map-img → { lat, lng, nx, ny }
+// Convert a browser click (clientX/Y) over the map → { lat, lng, nx, ny }
 function clickToLatLng(clientX, clientY) {
-  const img  = document.getElementById('map-img');
-  const rect = img.getBoundingClientRect();
-  const nx = (clientX - rect.left) * (1920 / rect.width);
-  const ny = (clientY - rect.top)  * (1080 / rect.height);
-  const wx = state.tlX + nx;
-  const wy = state.tlY + ny;
-  return { ...worldPixelToLngLat(wx, wy, state.zoom), nx, ny };
+  if (state.hasPreviewImage) {
+    // Static image mode - use image dimensions
+    const img  = document.getElementById('map-img');
+    const rect = img.getBoundingClientRect();
+    const nx = (clientX - rect.left) * (1920 / rect.width);
+    const ny = (clientY - rect.top)  * (1080 / rect.height);
+    const wx = state.tlX + nx;
+    const wy = state.tlY + ny;
+    return { ...worldPixelToLngLat(wx, wy, state.zoom), nx, ny };
+  } else {
+    // Live map mode - get lat/lng from Leaflet map
+    const container = leafletMapDraw.getContainer();
+    const rect = container.getBoundingClientRect();
+    const point = leafletMapDraw.containerPointToLatLng([clientX - rect.left, clientY - rect.top]);
+    const lat = point.lat;
+    const lng = point.lng;
+
+    // Calculate world pixel coordinates
+    function lngLatToWorldPixel(lng, lat, zoom) {
+      const n = Math.pow(2, zoom) * TILE_SIZE;
+      const x = ((lng + 180) / 360) * n;
+      const latRad = (lat * Math.PI) / 180;
+      const y = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+      return { x, y };
+    }
+
+    const worldPx = lngLatToWorldPixel(lng, lat, state.zoom);
+    const nx = worldPx.x - state.tlX;
+    const ny = worldPx.y - state.tlY;
+
+    return { lat, lng, nx, ny };
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -1005,34 +1037,40 @@ function setPhase(name) {
 // Phase 1 — Leaflet map
 // ═══════════════════════════════════════════════
 const leafletMap = L.map('leaflet-map', { center: [20, 0], zoom: 3 });
+let leafletMapDraw = null;  // Second map for draw phase (created when needed)
 
-// Define tile layer styles
-const tileLayers = {
-  satellite: L.layerGroup([
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      attribution: '© Esri, Maxar, Earthstar Geographics',
-      maxZoom: 18
-    }),
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-      opacity: 0.8,
-      maxZoom: 18
+// Define tile layer styles (factory function)
+function createTileLayers() {
+  return {
+    satellite: L.layerGroup([
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '© Esri, Maxar, Earthstar Geographics',
+        maxZoom: 18
+      }),
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        opacity: 0.8,
+        maxZoom: 18
+      })
+    ]),
+    osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+      subdomains: ['a', 'b', 'c']
     })
-  ]),
-  osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-    subdomains: ['a', 'b', 'c']
-  })
-};
+  };
+}
 
 // Set initial tile layer
+const tileLayers = createTileLayers();
 let currentTileLayer = tileLayers.satellite;
 currentTileLayer.addTo(leafletMap);
 
 // Map style selector
+let currentMapStyle = 'satellite';
 document.getElementById('map-style-selector').addEventListener('change', function() {
+  currentMapStyle = this.value;
   leafletMap.removeLayer(currentTileLayer);
-  currentTileLayer = tileLayers[this.value];
+  currentTileLayer = tileLayers[currentMapStyle];
   currentTileLayer.addTo(leafletMap);
 });
 
@@ -1069,19 +1107,56 @@ document.getElementById('btn-capture').addEventListener('click', async () => {
 
     // Load image preview only if available (Vercel doesn't provide preview)
     const imgEl = document.getElementById('map-img');
+    const leafletDrawEl = document.getElementById('leaflet-map-draw');
+
     if (data.imageBase64 && data.imageBase64.length > 0) {
+      // We have a preview image - use static image
+      state.hasPreviewImage = true;
       imgEl.src = `data:image/png;base64,${data.imageBase64}`;
+      imgEl.style.display = 'block';
+      leafletDrawEl.style.display = 'none';
       await new Promise((ok, fail) => { imgEl.onload = ok; imgEl.onerror = fail; });
     } else {
-      // No preview image (Vercel serverless limitation)
-      // Image will be generated during render
-      console.log('[Snapshot] Map bounds calculated, no preview available');
+      // No preview image (Vercel serverless limitation) - use live Leaflet map
+      state.hasPreviewImage = false;
+      imgEl.style.display = 'none';
+      leafletDrawEl.style.display = 'block';
+
+      // Create or update the draw phase Leaflet map
+      if (!leafletMapDraw) {
+        leafletMapDraw = L.map('leaflet-map-draw', {
+          center: [center.lat, center.lng],
+          zoom: zoom,
+          zoomControl: false,
+          dragging: false,
+          scrollWheelZoom: false,
+          doubleClickZoom: false,
+          boxZoom: false,
+          keyboard: false,
+          touchZoom: false
+        });
+        const drawTileLayers = createTileLayers();
+        drawTileLayers[currentMapStyle].addTo(leafletMapDraw);
+      } else {
+        leafletMapDraw.setView([center.lat, center.lng], zoom);
+      }
+
+      console.log('[Snapshot] Using live map for drawing (no preview available)');
     }
 
     overlay.classList.remove('active');
     renderWaypointChips();
     setPhase('draw');
-    requestAnimationFrame(() => requestAnimationFrame(setupCanvas));
+
+    // Ensure Leaflet map in draw phase is properly sized
+    if (!state.hasPreviewImage && leafletMapDraw) {
+      requestAnimationFrame(() => {
+        leafletMapDraw.invalidateSize();
+        requestAnimationFrame(setupCanvas);
+      });
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(setupCanvas));
+    }
   } catch (err) {
     overlay.classList.remove('active');
     if (err.name === 'AbortError') {
@@ -1100,21 +1175,38 @@ const canvas = document.getElementById('draw-canvas');
 const ctx    = canvas.getContext('2d');
 
 function setupCanvas() {
-  const img       = document.getElementById('map-img');
-  const imgRect   = img.getBoundingClientRect();
   const container = document.getElementById('draw-canvas-container');
   const cRect     = container.getBoundingClientRect();
+  let targetRect;
 
-  canvas.style.left   = (imgRect.left - cRect.left) + 'px';
-  canvas.style.top    = (imgRect.top  - cRect.top)  + 'px';
-  canvas.style.width  = imgRect.width  + 'px';
-  canvas.style.height = imgRect.height + 'px';
-  canvas.width  = imgRect.width;
-  canvas.height = imgRect.height;
+  if (state.hasPreviewImage) {
+    // Use static image dimensions
+    const img = document.getElementById('map-img');
+    targetRect = img.getBoundingClientRect();
+    canvas.style.left = (targetRect.left - cRect.left) + 'px';
+    canvas.style.top  = (targetRect.top  - cRect.top)  + 'px';
+  } else {
+    // Use full container for live map
+    targetRect = cRect;
+    canvas.style.left = '0px';
+    canvas.style.top  = '0px';
+  }
+
+  canvas.style.width  = targetRect.width  + 'px';
+  canvas.style.height = targetRect.height + 'px';
+  canvas.width  = targetRect.width;
+  canvas.height = targetRect.height;
   redrawCanvas();
 }
 
-window.addEventListener('resize', () => { if (state.phase === 'draw') setupCanvas(); });
+window.addEventListener('resize', () => {
+  if (state.phase === 'draw') {
+    if (!state.hasPreviewImage && leafletMapDraw) {
+      setTimeout(() => leafletMapDraw.invalidateSize(), 100);
+    }
+    setupCanvas();
+  }
+});
 
 canvas.addEventListener('mousemove', (e) => {
   try {
