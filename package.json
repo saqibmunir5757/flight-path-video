@@ -3,8 +3,9 @@
   "version": "0.0.1",
   "description": "Remotion Maps Video Project",
   "scripts": {
-    "start": "remotion studio",
-    "build": "echo 'No build needed for Vercel deployment'",
+    "start": "node railway-server.js",
+    "dev": "remotion studio",
+    "build": "echo 'No build needed'",
     "upgrade": "remotion upgrade",
     "fetch-map": "node scripts/fetch-map.js",
     "server": "node server.js"
@@ -13,6 +14,7 @@
     "@remotion/cli": "4.0.427",
     "@remotion/lambda": "4.0.427",
     "@remotion/webcodecs": "4.0.427",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
