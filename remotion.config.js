@@ -1,4 +1,4 @@
-import {Config} from '@remotion/cli/config';
+const {Config} = require('@remotion/cli/config');
 
 // Configure public directory (where map images and aircraft SVGs are stored)
 Config.setPublicDir('./public');

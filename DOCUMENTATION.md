@@ -742,14 +742,14 @@ Remotion is a **React-based video rendering framework** that generates videos by
 2. Capturing screenshots via headless Chromium
 3. Encoding frames to video using FFmpeg
 
-**Configuration:** The project uses `remotion.config.ts` to set the public directory for static assets (map images and aircraft SVGs), configure timeout limits, and optimize rendering performance.
+**Configuration:** The project uses `remotion.config.js` to set the public directory for static assets (map images and aircraft SVGs), configure timeout limits, and optimize rendering performance.
 
 #### Remotion Configuration File
 
-The [remotion.config.ts](remotion.config.ts) file ensures proper static file serving:
+The [remotion.config.js](remotion.config.js) file ensures proper static file serving:
 
-```typescript
-import {Config} from '@remotion/cli/config';
+```javascript
+const {Config} = require('@remotion/cli/config');
 
 // Configure public directory (where map images and aircraft SVGs are stored)
 Config.setPublicDir('./public');
@@ -1864,7 +1864,7 @@ Vercel (frontend) → Railway (render API)
 flight-path-video/
 ├── package.json                 # Dependencies and scripts
 ├── tsconfig.json               # TypeScript config for Composition
-├── remotion.config.ts          # Remotion configuration (public dir, timeouts)
+├── remotion.config.js          # Remotion configuration (public dir, timeouts)
 ├── server.js                   # Express API server
 ├── Dockerfile                  # Container definition
 ├── docker-compose.yml          # Docker orchestration
@@ -2212,12 +2212,12 @@ find out/ -name "video-*.mp4" -mtime +1 -delete
 
 Default (in Remotion):
 ```bash
-npx remotion render --concurrency=1 --config=remotion.config.ts
+npx remotion render --concurrency=1 --config=remotion.config.js
 ```
 
 High-performance server:
 ```bash
-npx remotion render --concurrency=4 --config=remotion.config.ts
+npx remotion render --concurrency=4 --config=remotion.config.js
 ```
 
 **Note:** Higher concurrency = faster render but more RAM. The `--config` flag ensures Remotion uses the correct public directory and timeout settings.
@@ -2383,9 +2383,9 @@ Render exited with code 1
 
 **Solutions:**
 
-1. **Ensure remotion.config.ts exists:**
+1. **Ensure remotion.config.js exists:**
    ```bash
-   ls -la remotion.config.ts
+   ls -la remotion.config.js
    # Should exist in project root
    ```
 
@@ -2413,7 +2413,7 @@ Render exited with code 1
    docker-compose up --build
    ```
 
-**Root cause:** The `remotion.config.ts` file tells Remotion where to find static assets. Without it, or with incorrect Express static file serving, Remotion's separate rendering server (port 3000) can't access map images from the Express server (port 3005).
+**Root cause:** The `remotion.config.js` file tells Remotion where to find static assets. Without it, or with incorrect Express static file serving, Remotion's separate rendering server (port 3000) can't access map images from the Express server (port 3005).
 
 ---
 
@@ -2455,7 +2455,7 @@ Generating map: London → Paris
 
 **Then render:**
 ```bash
-npx remotion render MapsVideo out/london-paris.mp4 --config=remotion.config.ts
+npx remotion render MapsVideo out/london-paris.mp4 --config=remotion.config.js
 ```
 
 ### Programmatic API Usage
