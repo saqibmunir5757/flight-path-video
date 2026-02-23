@@ -195,7 +195,11 @@ async function runJob(jobId, { waypoints, planeColor, lineColor, planeStyle, glo
   fs.mkdirSync(path.join(__dirname, "out"), { recursive: true });
 
   await new Promise((resolve, reject) => {
-    const proc = spawn("npx", ["remotion", "render", "MapsVideo", outputFile], { cwd: __dirname });
+    const proc = spawn("npx", [
+      "remotion", "render", "MapsVideo", outputFile,
+      "--public-dir", "public",
+      "--timeout", "300000"
+    ], { cwd: __dirname });
     let stderr = "";
     proc.stdout.on("data", (data) => {
       const str = data.toString();
